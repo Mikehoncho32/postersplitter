@@ -2,6 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+
     <!-- Favicons / icons -->
     <link rel="icon" href="/favicon.ico" sizes="any">
     <link rel="apple-touch-icon" href="/apple-touch-icon.png">
@@ -11,13 +12,26 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#111827" />
 
+    <!-- SEO description -->
+    <meta name="description" content="Split, scale, and print large images into tiled pages for home printers." />
+
+    <!-- Open Graph (Facebook, LinkedIn, Discord, etc.) -->
+    <meta property="og:title" content="PosterSplitter" />
+    <meta property="og:description" content="Split, scale, and print large images the easy way." />
+    <meta property="og:type" content="website" />
+    <meta property="og:image" content="/og-image.png" />
+    <meta property="og:url" content="https://www.postersplitter.com/" />
+
+    <!-- Twitter Card -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="PosterSplitter" />
+    <meta name="twitter:description" content="Split, scale, and print large images the easy way." />
+    <meta name="twitter:image" content="/og-image.png" />
+
     <title>PosterSplitter</title>
   </head>
   <body>
     <div id="root"></div>
-
-    <!-- Use the one that exists in your repo -->
-    <script type="module" src="/src/main.jsx"></script>
-    <!-- <script type="module" src="/src/main.tsx"></script> -->
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
