@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { jsPDF } from "jspdf";
 
 /* ---------- constants ---------- */
@@ -16,6 +16,12 @@ const LIMITS = {
 
 const BRAND = "PosterSplitter";
 
+/* ---------- guardrails ---------- */
+const SIZE_LIMIT_MB = 60; // soft cap for uploaded file size
+const MAX_TILES = 8 * 8;  // safety for rows*cols
+const MP_HIGH = 50;       // megapixels threshold (~8000x6250)
+const MP_MED = 25;        // megapixels threshold (~6000x4167)
+
 /* ---------- utils ---------- */
 function clamp(n: number, min: number, max: number) {
   return Math.min(max, Math.max(min, n));
@@ -31,6 +37,24 @@ const mmToPx = (mm: number, dpi: number) =>
 
 function cx(...xs: Array<string | false | null | undefined>) {
   return xs.filter(Boolean).join(" ");
+}
+
+/** Decide a safe DPI given the image size and requested DPI. */
+function computeSafeDpi(img: HTMLImageElement | null, requested: number) {
+  if (!img) return { dpi: requested, reason: "" };
+  const mega = (img.width * img.height) / 1e6;
+
+  let dpi = requested;
+  let reason = "";
+
+  if (mega > MP_HIGH) {
+    if (requested > 200) { dpi = 200; reason = `Large image (${mega.toFixed(1)} MP): DPI capped to 200.`; }
+  } else if (mega > MP_MED) {
+    if (requested > 240) { dpi = 240; reason = `Big image (${mega.toFixed(1)} MP): DPI capped to 240.`; }
+  }
+
+  dpi = clamp(dpi, LIMITS.dpi.min, LIMITS.dpi.max);
+  return { dpi, reason };
 }
 
 /* ---------- app ---------- */
@@ -69,7 +93,6 @@ export default function App() {
   const [trim, setTrim] = useState(true);
 
   // NEW: orientation control
-  // auto = match image aspect (wide -> landscape, tall -> portrait)
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
 
   // sanitized numbers (clamped, no NaN)
@@ -77,7 +100,7 @@ export default function App() {
   const rows = toIntInRange(rowsRaw, LIMITS.colsRows.min, LIMITS.colsRows.max, LIMITS.colsRows.fallback);
   const margin = toIntInRange(marginRaw, LIMITS.mm.min, LIMITS.mm.max, 0);
   const overlap = toIntInRange(overlapRaw, LIMITS.mm.min, LIMITS.mm.max, 5);
-  const dpi = toIntInRange(dpiRaw, LIMITS.dpi.min, LIMITS.dpi.max, LIMITS.dpi.fallback);
+  const requestedDpi = toIntInRange(dpiRaw, LIMITS.dpi.min, LIMITS.dpi.max, LIMITS.dpi.fallback);
 
   // compute effective paper size based on orientation setting
   const base = PAPER[paper];
@@ -86,15 +109,27 @@ export default function App() {
     orientation === "auto" ? (imgIsLandscape ? "landscape" : "portrait") : orientation;
   const P = effOrientation === "portrait" ? base : { w: base.h, h: base.w };
 
+  // Guard: compute effective DPI based on image megapixels
+  const { dpi: effectiveDpi, reason: dpiReason } = useMemo(
+    () => computeSafeDpi(img, requestedDpi),
+    [img, requestedDpi]
+  );
+
+  // Guard: soft warning if file is huge
+  const bigFileWarning =
+    file && file.size > SIZE_LIMIT_MB * 1024 * 1024
+      ? `This file is ${(file.size / 1024 / 1024).toFixed(1)} MB. If PDF generation is slow or black, try lower DPI or fewer tiles.`
+      : "";
+
   // preview
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const c = canvasRef.current;
     if (!c || !img) return;
 
-    const contentWpx = mmToPx(P.w - 2 * margin, dpi);
-    const contentHpx = mmToPx(P.h - 2 * margin, dpi);
-    const overlapPx = mmToPx(overlap, dpi);
+    const contentWpx = mmToPx(P.w - 2 * margin, effectiveDpi);
+    const contentHpx = mmToPx(P.h - 2 * margin, effectiveDpi);
+    const overlapPx = mmToPx(overlap, effectiveDpi);
 
     const tgtW = cols * contentWpx - (cols - 1) * overlapPx;
     const tgtH = rows * contentHpx - (rows - 1) * overlapPx;
@@ -141,17 +176,29 @@ export default function App() {
       const y = Math.round(j * stepY);
       ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(c.width, y); ctx.stroke();
     }
-  }, [img, P.w, P.h, margin, overlap, dpi, cols, rows, fitMode, theme]);
+  }, [img, P.w, P.h, margin, overlap, effectiveDpi, cols, rows, fitMode, theme]);
 
   async function generatePDF() {
     if (!img) return alert("Please upload an image first.");
 
-    const contentWpx = mmToPx(P.w - 2 * margin, dpi);
-    const contentHpx = mmToPx(P.h - 2 * margin, dpi);
-    const overlapPx = mmToPx(overlap, dpi);
+    // Guard: too many tiles?
+    if (rows * cols > MAX_TILES) {
+      alert(`That’s a lot of pages (${rows}×${cols}). For stability, please keep tiles ≤ ${Math.sqrt(MAX_TILES)}×${Math.sqrt(MAX_TILES)}.`);
+      return;
+    }
+
+    const contentWpx = mmToPx(P.w - 2 * margin, effectiveDpi);
+    const contentHpx = mmToPx(P.h - 2 * margin, effectiveDpi);
+    const overlapPx = mmToPx(overlap, effectiveDpi);
 
     const tgtW = cols * contentWpx - (cols - 1) * overlapPx;
     const tgtH = rows * contentHpx - (rows - 1) * overlapPx;
+
+    // Guard: massive canvas dimensions (can crash)
+    if (tgtW * tgtH > 12000 * 12000) { // ~144 MP
+      alert("Output canvas would be extremely large. Lower DPI, rows/cols, or increase margins/overlap.");
+      return;
+    }
 
     const master = document.createElement("canvas");
     master.width = tgtW;
@@ -343,7 +390,17 @@ export default function App() {
                   max={LIMITS.dpi.max}
                   value={dpiRaw}
                   onChange={(e) => setDpiRaw(e.target.value)}
-                  onBlur={() => setDpiRaw(String(dpi))}
+                  onBlur={() =>
+                    setDpiRaw(
+                      String(
+                        clamp(
+                          parseInt(dpiRaw || "0", 10) || LIMITS.dpi.fallback,
+                          LIMITS.dpi.min,
+                          LIMITS.dpi.max
+                        )
+                      )
+                    )
+                  }
                   className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
                 />
               </div>
@@ -381,7 +438,14 @@ export default function App() {
               <span className="text-sm">Trim marks</span>
             </label>
 
+            {(dpiReason || bigFileWarning) && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+                {dpiReason || bigFileWarning}
+              </p>
+            )}
+
             <button
+              title={dpiReason || bigFileWarning || "Generate PDF"}
               onClick={generatePDF}
               disabled={!img}
               className={cx(
