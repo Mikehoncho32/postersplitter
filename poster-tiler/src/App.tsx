@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import DoorTags from "./DoorTags";
 import { jsPDF } from "jspdf";
 
 /* ---------- constants ---------- */
@@ -57,8 +58,8 @@ function computeSafeDpi(img: HTMLImageElement | null, requested: number) {
   return { dpi, reason };
 }
 
-/* ---------- app ---------- */
-export default function App() {
+/* ---------- Poster Splitter (existing tool) ---------- */
+function PosterSplitter() {
   // theme
   const [theme, setTheme] = useState<"light" | "dark">(
     (localStorage.getItem("ps-theme") as "light" | "dark") || "light"
@@ -95,7 +96,7 @@ export default function App() {
   // NEW: orientation control
   const [orientation, setOrientation] = useState<"auto" | "portrait" | "landscape">("auto");
 
-  // sanitized numbers (clamped, no NaN)
+  // sanitized numbers
   const cols = toIntInRange(colsRaw, LIMITS.colsRows.min, LIMITS.colsRows.max, LIMITS.colsRows.fallback);
   const rows = toIntInRange(rowsRaw, LIMITS.colsRows.min, LIMITS.colsRows.max, LIMITS.colsRows.fallback);
   const margin = toIntInRange(marginRaw, LIMITS.mm.min, LIMITS.mm.max, 0);
@@ -109,7 +110,7 @@ export default function App() {
     orientation === "auto" ? (imgIsLandscape ? "landscape" : "portrait") : orientation;
   const P = effOrientation === "portrait" ? base : { w: base.h, h: base.w };
 
-  // Guard: compute effective DPI based on image megapixels
+  // Guard: compute effective DPI
   const { dpi: effectiveDpi, reason: dpiReason } = useMemo(
     () => computeSafeDpi(img, requestedDpi),
     [img, requestedDpi]
@@ -194,8 +195,8 @@ export default function App() {
     const tgtW = cols * contentWpx - (cols - 1) * overlapPx;
     const tgtH = rows * contentHpx - (rows - 1) * overlapPx;
 
-    // Guard: massive canvas dimensions (can crash)
-    if (tgtW * tgtH > 12000 * 12000) { // ~144 MP
+    // Guard: massive canvas
+    if (tgtW * tgtH > 12000 * 12000) {
       alert("Output canvas would be extremely large. Lower DPI, rows/cols, or increase margins/overlap.");
       return;
     }
@@ -219,9 +220,7 @@ export default function App() {
     mctx.imageSmoothingQuality = "high";
     mctx.drawImage(img, dx, dy, drawW, drawH);
 
-    const jsOrientation = (effOrientation === "landscape" ? "landscape" : "portrait") as
-      | "portrait"
-      | "landscape";
+    const jsOrientation = ((orientation === "auto" ? (imgIsLandscape ? "landscape" : "portrait") : orientation) === "landscape" ? "landscape" : "portrait") as "portrait" | "landscape";
 
     const doc = new jsPDF({
       unit: "mm",
@@ -250,7 +249,6 @@ export default function App() {
           tctx.strokeStyle = "rgba(0,0,0,0.5)";
           tctx.lineWidth = 1;
           const m = Math.round(Math.min(contentWpx, contentHpx) * 0.02);
-          // corners
           tctx.beginPath();
           tctx.moveTo(0, 0); tctx.lineTo(m, 0); tctx.moveTo(0, 0); tctx.lineTo(0, m);
           tctx.moveTo(contentWpx, 0); tctx.lineTo(contentWpx - m, 0); tctx.moveTo(contentWpx, 0); tctx.lineTo(contentWpx, m);
@@ -268,6 +266,120 @@ export default function App() {
   }
 
   return (
+    <>
+      {/* Settings & header (unchanged) */}
+      <section className="lg:col-span-1">
+        <div className="rounded-2xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-5 space-y-5">
+          <h2 className="text-lg font-semibold">Poster Splitter</h2>
+
+          {/* Upload */}
+          <div>
+            <label className="block text-sm font-medium mb-1">Upload image</label>
+            <input id="file" type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="sr-only" />
+            <label htmlFor="file" className={cx("inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm cursor-pointer","border border-gray-300 dark:border-slate-700","bg-white/60 dark:bg-slate-800/60","hover:bg:white/80 hover:shadow-sm dark:hover:bg-slate-700/70")}>
+              ⬆️ Choose file
+            </label>
+            {file && (
+              <p className="mt-2 text-xs text-gray-500 dark:text-slate-400 break-all">
+                {file.name} ({Math.round((file.size / 1024 / 1024) * 100) / 100} MB)
+              </p>
+            )}
+          </div>
+
+          {/* controls */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm mb-1">Columns</label>
+              <input type="number" min={LIMITS.colsRows.min} max={LIMITS.colsRows.max} value={colsRaw} onChange={(e) => setColsRaw(e.target.value)} onBlur={() => setColsRaw(String(cols))} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"/>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Rows</label>
+              <input type="number" min={LIMITS.colsRows.min} max={LIMITS.colsRows.max} value={rowsRaw} onChange={(e) => setRowsRaw(e.target.value)} onBlur={() => setRowsRaw(String(rows))} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"/>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm mb-1">Margin (mm)</label>
+              <input type="number" min={LIMITS.mm.min} max={LIMITS.mm.max} value={marginRaw} onChange={(e) => setMarginRaw(e.target.value)} onBlur={() => setMarginRaw(String(margin))} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"/>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Overlap (mm)</label>
+              <input type="number" min={LIMITS.mm.min} max={LIMITS.mm.max} value={overlapRaw} onChange={(e) => setOverlapRaw(e.target.value)} onBlur={() => setOverlapRaw(String(overlap))} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"/>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm mb-1">Paper</label>
+              <select value={paper} onChange={(e) => setPaper(e.target.value as PaperKey)} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm">
+                <option value="A4">A4 (210 × 297 mm)</option>
+                <option value="Letter">Letter (8.5 × 11 in)</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">DPI</label>
+              <input type="number" min={LIMITS.dpi.min} max={LIMITS.dpi.max} value={dpiRaw} onChange={(e) => setDpiRaw(e.target.value)} onBlur={() => setDpiRaw(String(clamp(parseInt(dpiRaw || "0", 10) || LIMITS.dpi.fallback, LIMITS.dpi.min, LIMITS.dpi.max)))} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"/>
+            </div>
+          </div>
+
+          {/* NEW: Orientation + Fit + Trim */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm mb-1">Orientation</label>
+              <select value={orientation} onChange={(e) => setOrientation(e.target.value as any)} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm">
+                <option value="auto">Auto (match image)</option>
+                <option value="portrait">Portrait</option>
+                <option value="landscape">Landscape</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm mb-1">Fit</label>
+              <select value={fitMode} onChange={(e) => setFitMode(e.target.value as "cover" | "contain")} className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm">
+                <option value="cover">Fill (crop)</option>
+                <option value="contain">Fit (letterbox)</option>
+              </select>
+            </div>
+          </div>
+
+          {(dpiReason || bigFileWarning) && (
+            <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
+              {dpiReason || bigFileWarning}
+            </p>
+          )}
+
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} />
+            <span className="text-sm">Trim marks</span>
+          </label>
+
+          <button onClick={generatePDF} disabled={!img} className={cx("w-full rounded-full px-4 py-2.5 text-sm font-semibold","bg-indigo-600 text-white hover:bg-indigo-500","disabled:opacity-50 disabled:cursor-not-allowed")}>
+            Generate PDF
+          </button>
+        </div>
+      </section>
+
+      {/* Preview */}
+      <section className="lg:col-span-2">
+        <div className="rounded-2xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-5">
+          <div className="mb-3 flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Preview</h2>
+            <span className="text-xs text-gray-500 dark:text-slate-400">Grid reflects tile boundaries & overlap.</span>
+          </div>
+          <div className="overflow-auto rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-950 p-2">
+            <canvas ref={canvasRef} className="block max-w-full" />
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}
+
+/* ---------- App with tabs ---------- */
+export default function App() {
+  const [tab, setTab] = useState<"splitter" | "door">("splitter");
+
+  return (
     <div className={cx("min-h-screen", "bg-gray-50 text-gray-900", "dark:bg-slate-950 dark:text-slate-100")}>
       <header className="border-b border-gray-200 bg-white dark:bg-slate-900 dark:border-slate-800">
         <div className="mx-auto max-w-6xl px-6 py-4 flex items-center justify-between gap-3">
@@ -277,209 +389,26 @@ export default function App() {
             </div>
             <h1 className="text-xl md:text-2xl font-bold tracking-tight">PosterSplitter</h1>
           </div>
-          <button
-            onClick={() => setTheme(theme === "light" ? "dark" : "light")}
-            className="rounded-full border bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700 px-3 py-1.5 text-sm hover:bg-gray-50 dark:hover:bg-slate-700"
-          >
-            {theme === "light" ? "🌙 Dark" : "☀️ Light"}
-          </button>
+
+          <nav className="flex items-center gap-2">
+            <button
+              className={cx("px-3 py-1.5 rounded-full text-sm border", tab === "splitter" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700")}
+              onClick={() => setTab("splitter")}
+            >
+              Poster Splitter
+            </button>
+            <button
+              className={cx("px-3 py-1.5 rounded-full text-sm border", tab === "door" ? "bg-indigo-600 text-white border-indigo-600" : "bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-700")}
+              onClick={() => setTab("door")}
+            >
+              Door Tags
+            </button>
+          </nav>
         </div>
       </header>
 
       <main className="mx-auto max-w-6xl px-6 py-6 grid gap-6 lg:grid-cols-3">
-        {/* Controls */}
-        <section className="lg:col-span-1">
-          <div className="rounded-2xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-5 space-y-5">
-            <h2 className="text-lg font-semibold">Settings</h2>
-
-            {/* Upload */}
-            <div>
-              <label className="block text-sm font-medium mb-1">Upload image</label>
-              <input id="file" type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="sr-only" />
-              <label
-                htmlFor="file"
-                className={cx(
-                  "inline-flex items-center gap-2 rounded-full px-4 py-2 text-sm cursor-pointer",
-                  "border border-gray-300 dark:border-slate-700",
-                  "bg-white/60 dark:bg-slate-800/60",
-                  "hover:bg-white/80 hover:shadow-sm dark:hover:bg-slate-700/70"
-                )}
-              >
-                ⬆️ Choose file
-              </label>
-              {file && (
-                <p className="mt-2 text-xs text-gray-500 dark:text-slate-400 break-all">
-                  {file.name} ({Math.round((file.size / 1024 / 1024) * 100) / 100} MB)
-                </p>
-              )}
-            </div>
-
-            {/* Grid controls */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm mb-1">Columns</label>
-                <input
-                  type="number"
-                  min={LIMITS.colsRows.min}
-                  max={LIMITS.colsRows.max}
-                  value={colsRaw}
-                  onChange={(e) => setColsRaw(e.target.value)}
-                  onBlur={() => setColsRaw(String(cols))}
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Rows</label>
-                <input
-                  type="number"
-                  min={LIMITS.colsRows.min}
-                  max={LIMITS.colsRows.max}
-                  value={rowsRaw}
-                  onChange={(e) => setRowsRaw(e.target.value)}
-                  onBlur={() => setRowsRaw(String(rows))}
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm mb-1">Margin (mm)</label>
-                <input
-                  type="number"
-                  min={LIMITS.mm.min}
-                  max={LIMITS.mm.max}
-                  value={marginRaw}
-                  onChange={(e) => setMarginRaw(e.target.value)}
-                  onBlur={() => setMarginRaw(String(margin))}
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                />
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Overlap (mm)</label>
-                <input
-                  type="number"
-                  min={LIMITS.mm.min}
-                  max={LIMITS.mm.max}
-                  value={overlapRaw}
-                  onChange={(e) => setOverlapRaw(e.target.value)}
-                  onBlur={() => setOverlapRaw(String(overlap))}
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm mb-1">Paper</label>
-                <select
-                  value={paper}
-                  onChange={(e) => setPaper(e.target.value as PaperKey)}
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                >
-                  <option value="A4">A4 (210 × 297 mm)</option>
-                  <option value="Letter">Letter (8.5 × 11 in)</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-sm mb-1">DPI</label>
-                <input
-                  type="number"
-                  min={LIMITS.dpi.min}
-                  max={LIMITS.dpi.max}
-                  value={dpiRaw}
-                  onChange={(e) => setDpiRaw(e.target.value)}
-                  onBlur={() =>
-                    setDpiRaw(
-                      String(
-                        clamp(
-                          parseInt(dpiRaw || "0", 10) || LIMITS.dpi.fallback,
-                          LIMITS.dpi.min,
-                          LIMITS.dpi.max
-                        )
-                      )
-                    )
-                  }
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                />
-              </div>
-            </div>
-
-            {/* NEW: Orientation */}
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm mb-1">Orientation</label>
-                <select
-                  value={orientation}
-                  onChange={(e) => setOrientation(e.target.value as any)}
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                >
-                  <option value="auto">Auto (match image)</option>
-                  <option value="portrait">Portrait</option>
-                  <option value="landscape">Landscape</option>
-                </select>
-              </div>
-              <div>
-                <label className="block text-sm mb-1">Fit</label>
-                <select
-                  value={fitMode}
-                  onChange={(e) => setFitMode(e.target.value as "cover" | "contain")}
-                  className="w-full rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-sm"
-                >
-                  <option value="cover">Fill (crop)</option>
-                  <option value="contain">Fit (letterbox)</option>
-                </select>
-              </div>
-            </div>
-
-            <label className="flex items-center gap-2">
-              <input type="checkbox" checked={trim} onChange={(e) => setTrim(e.target.checked)} />
-              <span className="text-sm">Trim marks</span>
-            </label>
-
-            {(dpiReason || bigFileWarning) && (
-              <p className="mt-2 text-xs text-amber-600 dark:text-amber-400">
-                {dpiReason || bigFileWarning}
-              </p>
-            )}
-
-            <button
-              title={dpiReason || bigFileWarning || "Generate PDF"}
-              onClick={generatePDF}
-              disabled={!img}
-              className={cx(
-                "w-full rounded-full px-4 py-2.5 text-sm font-semibold",
-                "bg-indigo-600 text-white hover:bg-indigo-500",
-                "disabled:opacity-50 disabled:cursor-not-allowed"
-              )}
-            >
-              Generate PDF
-            </button>
-          </div>
-        </section>
-
-        {/* Preview */}
-        <section className="lg:col-span-2">
-          <div className="rounded-2xl border border-gray-200 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm p-5">
-            <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-lg font-semibold">Preview</h2>
-              <span className="text-xs text-gray-500 dark:text-slate-400">
-                Grid reflects tile boundaries & overlap.
-              </span>
-            </div>
-
-            <div className="overflow-auto rounded-xl border border-dashed border-gray-300 dark:border-slate-700 bg-gray-50 dark:bg-slate-950 p-2">
-              {!img ? (
-                <div className="grid h-72 place-items-center text-sm text-gray-500 dark:text-slate-400">
-                  Upload an image to see the preview.
-                </div>
-              ) : (
-                <canvas ref={canvasRef} className="block max-w-full" />
-              )}
-            </div>
-          </div>
-        </section>
+        {tab === "splitter" ? <PosterSplitter /> : <DoorTags />}
       </main>
 
       <footer className="mx-auto max-w-6xl px-6 py-8 text-xs text-gray-500 dark:text-slate-400">
